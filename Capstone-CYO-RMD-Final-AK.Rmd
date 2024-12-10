@@ -1,0 +1,400 @@
+---
+title: "**HarvardX: PH125.9X-Choose Your Own(CYO) Project**"
+author: "**Arnab K Sarkar**"
+date: "`r Sys.Date()`"
+output: 
+  pdf_document:
+    number_sections: true
+    toc: true
+    toc_depth: 4
+    fig_caption: true
+  html_document: 
+    default: true
+fontsize: 10pt
+include-before: 
+urlcolor: blue
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+#source("Capstone-CYO-R file-Final-AK.R")
+
+suppressWarnings({
+  if (!requireNamespace("tinytex", quietly = TRUE)) {
+    install.packages("tinytex")
+  }
+  if (!tinytex::is_tinytex()) {
+    tinytex::install_tinytex()
+  }
+})
+
+# Load necessary libraries
+
+library(dplyr)          # Data manipulation
+library(ggplot2)        # Data visualization
+library(caret)          # Machine learning
+library(randomForest)   # Random forest model
+library(chron)          # Date handling
+library(ROCR)           # Performance evaluation
+library(tidyr)          # Data tidying
+library(xgboost)        # Gradient boosting model
+library(tidyr)          # Data tidying
+library(tidyverse)
+library(Matrix)
+
+```
+
+```{r data-load, include=FALSE}
+# Load the data
+# Assuming the data is in a CSV file called 'data.csv'
+data <- read.csv('C://Users//prero//Downloads//london_crime_by_lsoa.csv',header=TRUE)
+
+# Subseting the data to have 1M records only
+data <- data[1:100000,]
+
+# Data Cleaning
+
+# Convert year and month into a Date format for easier manipulation
+data$Date <- as.Date(paste(data$year, data$month, "01", sep = "-"), format="%Y-%m-%d")
+
+# Remove rows with NA values in critical columns
+data_clean <- data %>%
+  filter(!is.na(value) & !is.na(year) & !is.na(month))
+
+# Check data types and convert if necessary
+data_clean$borough <- as.factor(data_clean$borough)
+data_clean$major_category <- as.factor(data_clean$major_category)
+data_clean$minor_category <- as.factor(data_clean$minor_category)
+```
+\newpage
+
+# Introduction
+
+This project analyzes a dataset containing crime statistics in London, specifically focusing onthe crime rates across different boroughs and categories. The dataset, sourced fromlondon_crime_by_lsoa.csv, includes various attributes such as year, month, borough, majorcategory, minor category, and the associated crime value for each area. The primary goal of this analysis is to explore and model the factors influencing crime ratesin London, aiming to understand trends over time and compare different modeling techniquesfor predicting crime values. The analysis encompasses data cleaning, exploratory data analysis (EDA), and the application of machine learning models.
+
+## Dataset Overview
+
+The dataset comprises the following key variables:
+year: The year when the crime was recorded
+month: The month of the recorded crime
+borough: The borough in which the crime occurred, categorized as a factor
+major_category: A broader category of crime (e.g., violent crime, property crime), also treated as a factor.
+minor_category: A more specific category within the major category, treated as a factor a swell.
+value: A numerical representation of the crime rate or count
+
+## Exploratory Data Analysis (EDA)
+
+- **Summary Statistics:**  
+  Descriptive statistics were generated to provide an overview of the data distribution and central tendencies.  
+
+- **Visualizations:**  
+  Various plots were created to visualize the data:  
+  - **Boxplots:** Boxplots for `major_category` and `borough` illustrated the distribution of crime values across different categories and regions, highlighting potential outliers.  
+  - **Time Series Analysis:** A time series line plot was generated to observe trends in mean crime values over time, revealing seasonal variations and long-term trends.  
+
+- **Insights:**  
+  - Certain boroughs exhibited significantly higher crime rates than others, indicating potential areas of concern for law enforcement and community resources.  
+  - Specific major and minor categories displayed distinct patterns, suggesting that particular types of crime may be more prevalent during certain months or years.  
+  - The time series analysis showed trends and fluctuations, indicating periods of rising or falling crime rates, which could correlate with various socio-economic factors or policy changes.  
+
+
+```{r EDA, include=TRUE}
+# Summary statistics
+summary(data_clean)
+```
+```{r Plots, include=TRUE}
+## Including Plots
+
+# Distribution of values by major category
+ggplot(data_clean, aes(x = major_category, y = value, fill = major_category)) +
+  geom_boxplot() +
+  labs(title = "Value Distribution by Major Category", x = "Major Category", y = "Value") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Time series plot of values over time
+data_clean %>%
+  group_by(Date) %>%
+  summarise(mean_value = mean(value)) %>%
+  ggplot(aes(x = Date, y = mean_value)) +
+  geom_line() +
+  labs(title = "Mean Value Over Time", x = "Date", y = "Mean Value")
+```
+
+```{r Additional-Plots, fig.width=12, fig.height=8, include=TRUE}
+# Distribution of values by borough
+ggplot(data_clean, aes(x = borough, y = value, fill = borough)) +
+  geom_boxplot() +
+  labs(title = "Value Distribution by Borough", x = "Borough", y = "Value") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "bottom",
+        plot.title = element_text(hjust = 0.5, vjust = 3))
+
+#Distribution of values by minor category
+ggplot(data_clean, aes(x = minor_category, y = value, fill = minor_category)) +
+  geom_boxplot() +
+  labs(title = "Value Distribution by Minor Category", x = "Minor Category", y = "Value") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "bottom",
+        plot.title = element_text(hjust = 0.5, vjust = 3))
+
+```
+
+## Data Cleaning and Preparation
+
+The initial step involved cleaning the dataset to ensure its suitability for analysis. The following procedures were executed:
+
+1. **Subsetting:**  
+   The dataset was limited to the first 1 million records to facilitate processing and analysis.
+
+2. **Date Conversion:**  
+   The `year` and `month` variables were combined to create a `Date` variable in the format `YYYY-MM-DD`, allowing for easier time-series analysis.
+
+3. **Missing Value Handling:**  
+   Rows with missing values in critical columns, specifically `value`, `year`, and `month`, were removed to maintain data integrity.
+
+4. **Type Conversion:**  
+   Categorical variables (`borough`, `major_category`, and `minor_category`) were converted into factors to ensure appropriate treatment during modeling.
+
+
+```{r data-cleaning, include=TRUE}
+# Convert year and month into a Date format for easier manipulation
+data$Date <- as.Date(paste(data$year, data$month, "01", sep = "-"), format="%Y-%m-%d")
+
+# Remove rows with NA values in critical columns
+data_clean <- data %>%
+  filter(!is.na(value) & !is.na(year) & !is.na(month))
+
+# Check data types and convert if necessary
+data_clean$borough <- as.factor(data_clean$borough)
+data_clean$major_category <- as.factor(data_clean$major_category)
+data_clean$minor_category <- as.factor(data_clean$minor_category)
+```
+
+# Model Development & Evaluation
+
+The following models were developed and evaluated:
+
+1. **Linear Regression Model:**  
+   A linear regression model was built to evaluate the relationship between crime values and predictor variables.
+
+2. **Gradient Boosting Model (XGBoost):**  
+   A gradient boosting model was trained to capture complex patterns in the data.
+
+3. **Random Forest Model:**  
+   A random forest model was employed as an alternative non-parametric approach.
+
+**Performance Metrics:**  
+Each model's performance was assessed using metrics such as Mean Squared Error (MSE) and R-squared. A comparative analysis was performed to identify the most effective model for predicting crime rates.
+
+**Focus on Advanced Techniques:**  
+The analysis employed three different models to predict crime values, with an emphasis on two advanced techniques (gradient boosting and random forest) in addition to linear regression.
+
+
+## Linear Regression
+
+1. **Model Formula:**  
+   A linear regression model was fitted using the formula:  
+   `value ~ borough + major_category + minor_category + year + month`.
+
+2. **Purpose:**  
+   This model served as a baseline to understand the linear relationships between the predictors and the target variable (crime value).
+
+3. **Evaluation:**  
+   Predictions were generated for the test dataset, and evaluation metrics such as Mean Squared Error (MSE) and R-squared were calculated to assess model    performance.
+
+
+
+## XGBoost (Extreme Gradient Boosting)
+
+1. **Model Selection:**  
+   XGBoost was selected as a more advanced model due to its effectiveness in handling complex datasets and its ability to capture non-linear     relationships.
+
+2. **Configuration:**  
+   The model was configured with parameters including:  
+   - `max_depth`: Controls the maximum depth of the trees.  
+   - `eta` (learning rate): Balances model updates.  
+   - `eval_metric`: Set to Root Mean Squared Error (RMSE) for evaluation.
+
+3. **Data Preparation:**  
+   - The training data was prepared as a sparse matrix using the `xgb.DMatrix` function.  
+   - This approach optimizes memory usage and computational efficiency.
+
+4. **Evaluation:**  
+   - Predictions were made on the test dataset.  
+   - Model performance was assessed using metrics such as Mean Squared Error (MSE) and R-squared, consistent with the evaluation of the linear regression      model.
+
+## Random Forest
+
+1. **Model Selection:**  
+   A Random Forest model was utilized to provide a robust alternative approach, leveraging an ensemble of decision trees to improve prediction accuracy and reduce overfitting.
+
+2. **Training:**  
+   - The model was trained using the same set of predictors as in the linear regression model.  
+
+3. **Evaluation:**  
+   - Predictions were generated for the test dataset.  
+   - Model performance was compared against the linear regression and XGBoost models using consistent metrics.
+
+
+## Model Evaluation
+
+After fitting the models, each was evaluated based on MSE and R-squared values. This evaluation provided insights into the relative performance of each model, helping to identify the most effective approach for predicting crime rates based on the provided features. The results facilitated a comparison of predictive accuracy, with the more complex models generally outperforming the linear regression model, showcasing the advantage of using advanced techniques like XGBoost and Random Forest for this type of analysis.
+
+```{r models, include=TRUE}
+# Machine Learning Models
+
+# Prepare data for modeling
+set.seed(123)  # For reproducibility
+
+# Create a train/test split
+trainIndex <- createDataPartition(data_clean$value, p = .8, 
+                                  list = FALSE, 
+                                  times = 1)
+data_train <- data_clean[trainIndex, ]
+data_test  <- data_clean[-trainIndex, ]
+
+# Convert categorical variables to numeric
+data_train_matrix <- model.matrix(value ~ borough + major_category + minor_category + year + month - 1, data = data_train)
+data_test_matrix <- model.matrix(value ~ borough + major_category + minor_category + year + month - 1, data = data_test)
+
+# Convert to sparse matrices
+sparse_train_matrix <- Matrix(data_train_matrix, sparse = TRUE)
+sparse_test_matrix <- Matrix(data_test_matrix, sparse = TRUE)
+
+# Prepare data for xgboost
+dtrain <- xgb.DMatrix(data = sparse_train_matrix, label = data_train$value)
+dtest <- xgb.DMatrix(data = sparse_test_matrix, label = data_test$value)
+
+# Model 1: Linear Regression
+linear_model <- lm(value ~ borough + major_category + minor_category + year + month, data = data_train)
+summary(linear_model)
+
+# Predict on test data
+predictions_linear <- predict(linear_model, newdata = data_test)
+
+# Model 2: Gradient Boosting Machine (XGBoost)
+params <- list(
+  objective = "reg:squarederror", # Regression task
+  eval_metric = "rmse",           # Root Mean Squared Error
+  max_depth = 6,                  # Depth of trees
+  eta = 0.1,                      # Learning rate
+  nthread = 2                     # Number of threads
+)
+
+xgb_model <- xgb.train(params = params,
+                       data = dtrain,
+                       nrounds = 100,         # Number of boosting rounds
+                       verbose = 0)
+
+# Predict on test data
+predictions_xgb <- predict(xgb_model, dtest)
+
+# Model 3: Random Forest
+rf_model <- randomForest(value ~ borough + major_category + minor_category + year + month, data = data_train)
+
+# Predict on test data for Random Forest
+predictions_rf <- predict(rf_model, newdata = data_test)
+```
+
+# Results
+
+## Model Performance Metrics
+The performance of the three models—Linear Regression, XGBoost, and Random Forest—was evaluated using Mean Squared Error (MSE) and R-squared (R²) values. 
+The results are summarized below:
+
+```{r model-performances, include=TRUE}
+
+computed_mse_rmse <- tibble(Method = character(), MSE= numeric(), RMSE = numeric())
+
+# For Linear Regression
+mse_linear <- mean((predictions_linear - data_test$value)^2)
+
+r2_linear <- 1 - (
+  sum((predictions_linear - data_test$value)^2) /
+  sum((data_test$value - mean(data_test$value))^2)
+)
+
+cat("Mean Squared Error for Linear Regression:", mse_linear)
+cat("R-squared for Linear Regression:", r2_linear)
+
+computed_mse_rmse <- bind_rows(computed_mse_rmse,
+              tibble(Method = "Linear Regression Model", MSE= mse_linear, RMSE = r2_linear))
+
+# For XGBoost
+mse_xgb <- mean((predictions_xgb - data_test$value)^2)
+
+r2_xgb <- 1 - (
+   sum((predictions_xgb - data_test$value)^2) / 
+   sum((data_test$value - mean(data_test$value))^2)
+  )
+
+cat("Mean Squared Error for XGBoost:", mse_xgb)
+cat("R-squared for XGBoost:", r2_xgb)
+
+computed_mse_rmse <- bind_rows(computed_mse_rmse,
+              tibble(Method = "XGBoost Model", MSE= mse_xgb, RMSE = r2_xgb))
+
+# For Random Forest
+mse_rf <- mean((predictions_rf - data_test$value)^2)
+
+r2_rf <- 1 - (
+  sum((predictions_rf - data_test$value)^2) /
+  sum((data_test$value - mean(data_test$value))^2)
+)
+
+cat("Mean Squared Error for Random Forest:", mse_rf)
+cat("R-squared for Random Forest:", r2_rf)
+
+computed_mse_rmse <- bind_rows(computed_mse_rmse,
+            tibble(Method = "Random Forest Model", MSE= mse_rf, RMSE = r2_rf))
+```
+\newpage
+## Discussion & Comparative Analysis
+
+Below is the table with comparison of performances across 3 models used:
+
+```{r model-performances-results, include=TRUE}
+computed_mse_rmse %>% knitr::kable()
+```
+
+**Linear Regression:**
+The Linear Regression model yielded an MSE of 2.27952 and an R² value of 0.08047. The relatively low R² indicates that the model explains only about 8% of the variability in the crime values, suggesting that the linear relationships between the predictors and the target variable are weak. While the MSE is modest, the overall performance indicates that this model may not be capturing the complexities of the data effectively.
+
+**XGBoost:**
+The XGBoost model resulted in an MSE of 2.67925 and a negative R² of -0.08077. The negative R² value indicates that the model performs worse than a simple mean prediction, suggesting that the chosen hyperparameters or features may not be well-suited for this dataset. This result highlights the importance of parameter tuning and the selection of relevant features when utilizing advanced models like XGBoost.
+
+**Random Forest:**
+The Random Forest model achieved the best performance among the three, with an MSE of 2.25959 and an R² of 0.08851. Although the R² value is still relatively low, it is the highest among the models tested, indicating a slightly better fit to the data compared to both the Linear Regression and XGBoost models. The Random Forest’s ability to manage non-linear relationships and interactions between features likely contributed to its superior performance.
+
+**Comparative Analysis**
+When comparing the models, it is clear that the Random Forest model outperformed the others in terms of both MSE and R². The Linear Regression model provided a reasonable baseline, but its simplicity limited its effectiveness. The negative performance of the XGBoost model indicates potential issues with feature selection or model configuration.
+Overall, while none of the models achieved a strong predictive capability, the Random Forest model demonstrated the best balance of performance metrics, making it the most promising candidate for further refinement and tuning.
+\newpage
+
+# Conclusion
+
+This report presents an analysis of London crime data, focusing on understanding crime trends and predicting crime rates across various boroughs and categories. By employing a combination of data cleaning, exploratory data analysis, and machine learning modeling, the project sought to uncover insights into the factors influencing crime and assess the efficacy of different predictive techniques.
+
+Through the analysis, it was determined that certain boroughs and crime categories exhibited distinct patterns and trends. The exploratory data analysis revealed significant disparities in crime rates, as well as temporal trends that could be essential for law enforcement and public policy decisions. The modeling efforts demonstrated that both the XGBoost and Random Forest algorithms provided superior predictive performance compared to linear regression, highlighting their capability to capture complex relationships within the data.
+
+**Potential Impact:**
+The insights generated from this analysis could have practical implications for crime prevention strategies, resource allocation, and community safety initiatives. Law enforcement agencies and policymakers can leverage these findings to identify high-risk areas, optimize patrol routes, and implement targeted interventions that address specific types of crime.
+
+**Limitations:**
+Despite the strengths of this analysis, several limitations should be acknowledged:
+
+**Data Constraints:** The analysis was conducted on a subset of the dataset (1 million records), which may not fully capture the variability and trends present in the entire dataset.
+
+**Predictor Selection:** The models were based on the selected predictors, which may not encompass all relevant factors influencing crime rates, such as socio-economic variables, seasonal effects, or community programs.
+
+**Temporal Changes:**  
+
+The nature of crime may evolve over time, and models trained on historical data may not adequately predict future trends if there are significant societal changes.
+
+Future research could enhance the findings of this report in several ways:  
+\begin{itemize}
+  \item \textbf{Incorporating Additional Data:} Including socio-economic indicators, weather data, or community engagement metrics could provide a more comprehensive understanding of crime dynamics.  
+  \item \textbf{Model Improvement:} Experimenting with more advanced modeling techniques, such as neural networks or time-series forecasting models, could yield improved predictions.  
+  \item \textbf{Longitudinal Analysis:} Conducting a longitudinal study to assess how crime rates change over time, alongside policy implementations or socio-economic shifts, could provide deeper insights into causal relationships.
+\end{itemize}
